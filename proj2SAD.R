@@ -99,7 +99,8 @@ plotROC(predictions[,2], crabs_dataset$targetsTest[,2])
 confusionMatrix(crabs_dataset$targetsTrain, encodeClassLabels(fitted.values(model), method="402040", l=0.4, h=0.6))
 
 ## noshows dataset
-noshow_dataset <- read.csv("noshows.20171013.csv")
+
+## pre processing
 library(readr)
 noshows_20171013 <- read_delim("noshows.20171013.csv",";", escape_double = FALSE, trim_ws = TRUE)
 install.packages('e1071', dependencies=TRUE)
@@ -110,7 +111,94 @@ noshows_20171013$ScheduledDay <- NULL
 noshows_20171013$AppointmentDay <- NULL
 noshows_20171013$Neighbourhood <- NULL
 noshows_20171013$Gender = as.double(noshows_20171013$Gender=="M")
-noshows_20171013[1:13] <- lapply(noshows_20171013[1:13], as.numeric)
 noshows_20171013 <- as.data.frame(noshows_20171013)
+noshows_20171013$`No-show` = as.double(noshows_20171013$`No-show`=="Yes")
 apply(noshows_20171013, 2, function(x) any(is.na(x) | is.infinite(x)))
+
+movetolast <- function(data, move) {
+  data[c(setdiff(names(data), move), move)]
+}
+noshows_20171013 = movetolast(noshows_20171013, "No-show")
+
+
+## kNN
+ind <- sample(2, nrow(noshows_20171013), replace=TRUE, prob=c(0.7, 0.3))
+trainData <- noshows_20171013[ind==1,]
+testData <- noshows_20171013[ind==2,]
+
+model_knn = train(trainData[,1:13], trainData$`No-show`, method = 'knn')
+predictions<-predict(object=model_knn,testData[,1:13])
+table(predictions)
+consufion_matrix <- confusionMatrix(predictions,testData$`No-show`)
+train_control <- trainControl(method="cv", number=10)
+
+## NB
+library(e1071)
+x = noshows_20171013[1:13]
+y = noshows_20171013$`No-show`
+model = train(x,y,'nb',trControl=trainControl(method='cv',number=10))
+predict(model$finalModel,x)
+table(predict(model$finalModel,x)$class,y)
+naive_noshows <- NaiveBayes(noshows_20171013$`No-show` ~ ., data = noshows_20171013)
+plot(naive_noshows)
+
+## Decision Trees
+# CART
+library(rpart)
+fit <- rpart(`No-show`~., data=noshows_20171013)
+summary(fit)
+predictions <- predict(fit, noshows_20171013[,1:13], type="class")
+table(predictions, noshows_20171013$`No-show`)
+
+# C4.5
+# load the package
+library(RWeka)
+# fit model
+fit <- J48(`No-show`~., data=noshows_20171013)
+# summarize the fit
+summary(fit)
+# make predictions
+predictions <- predict(fit, noshows_20171013[,1:13])
+# summarize accuracy
+table(predictions, noshows_20171013$`No-show`)
+
+
+## NN
+
+#shuffle the vector
+noshows_20171013 <- noshows_20171013[sample(1:nrow(noshows_20171013),length(1:nrow(noshows_20171013))),1:ncol(noshows_20171013)]
+
+noshowsValues <- noshows_20171013[,1:13]
+noshowsTargets <- decodeClassLabels(noshows_20171013[,14])
+
+noshows_20171013<- splitForTrainingAndTest(noshowsValues, noshowsTargets, ratio=0.15)
+noshows_20171013 <- normTrainingAndTestSet(noshows_20171013)
+
+model <- mlp(noshows_20171013$inputsTrain, noshows_20171013$targetsTrain, size=5, learnFuncParams=c(0.1), 
+             maxit=50, inputsTest=noshows_20171013$inputsTest, targetsTest=noshows_20171013$targetsTest)
+
+summary(model)
+model
+weightMatrix(model)
+extractNetInfo(model)
+
+par(mfrow=c(2,2))
+plotIterativeError(model)
+
+predictions <- predict(model,noshows_20171013$inputsTest)
+
+plotRegressionError(predictions[,2], noshows_20171013$targetsTest[,2])
+
+confusionMatrix(noshows_20171013$targetsTrain,fitted.values(model))
+confusionMatrix(noshows_20171013$targetsTest,predictions)
+
+plotROC(fitted.values(model)[,2], noshows_20171013$targetsTrain[,2])
+plotROC(predictions[,2], noshows_20171013$targetsTest[,2])
+
+#confusion matrix with 402040-method
+confusionMatrix(noshows_20171013$targetsTrain, encodeClassLabels(fitted.values(model), method="402040", l=0.4, h=0.6))
+
+
+
+
 
